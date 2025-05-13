@@ -1,6 +1,7 @@
 package com.app.mes;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
@@ -43,37 +44,62 @@ public class CreateGroupActivity extends AppCompatActivity {
         btnCreateGroup = findViewById(R.id.btnCreateGroup);
 
         auth = FirebaseAuth.getInstance();
-        databaseReference = FirebaseDatabase.getInstance().getReference("Users");
+        databaseReference = FirebaseDatabase.getInstance().getReference();
         userList = new ArrayList<>();
 
         userSelectAdapter = new UserSelectAdapter(this, userList);
         recyclerViewUsers.setLayoutManager(new LinearLayoutManager(this));
         recyclerViewUsers.setAdapter(userSelectAdapter);
 
-        loadUsers();
+        loadFriends();
 
         btnCreateGroup.setOnClickListener(v -> createGroup());
     }
 
-    private void loadUsers() {
-        databaseReference.addValueEventListener(new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot snapshot) {
-                userList.clear();
-                for (DataSnapshot dataSnapshot : snapshot.getChildren()) {
-                    User user = dataSnapshot.getValue(User.class);
-                    if (user != null && !user.getUid().equals(auth.getCurrentUser().getUid())) {
-                        userList.add(user);
-                    }
-                }
-                userSelectAdapter.notifyDataSetChanged();
-            }
+    private void loadFriends() {
+        if (auth.getCurrentUser() == null) return;
+        String currentUserId = auth.getCurrentUser().getUid();
 
-            @Override
-            public void onCancelled(@NonNull DatabaseError error) {
-                Toast.makeText(CreateGroupActivity.this, "Lỗi: " + error.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-        });
+        // Lấy danh sách bạn bè
+        databaseReference.child("Users")
+                .child(currentUserId)
+                .child("friends")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(@NonNull DataSnapshot friendsSnapshot) {
+                        userList.clear();
+                        for (DataSnapshot friendSnapshot : friendsSnapshot.getChildren()) {
+                            String friendId = friendSnapshot.getKey();
+                            // Lấy thông tin chi tiết của bạn bè
+                            databaseReference.child("Users")
+                                    .child(friendId)
+                                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                                        @Override
+                                        public void onDataChange(@NonNull DataSnapshot userSnapshot) {
+                                            User user = userSnapshot.getValue(User.class);
+                                            if (user != null) {
+                                                userList.add(user);
+                                                userSelectAdapter.notifyDataSetChanged();
+                                            }
+                                        }
+
+                                        @Override
+                                        public void onCancelled(@NonNull DatabaseError error) {
+                                            Toast.makeText(CreateGroupActivity.this,
+                                                "Lỗi: " + error.getMessage(),
+                                                Toast.LENGTH_SHORT).show();
+                                        }
+                                    });
+                        }
+                    }
+
+                    @Override
+                    public void onCancelled(@NonNull DatabaseError error) {
+                        Toast.makeText(CreateGroupActivity.this,
+                            "Lỗi: " + error.getMessage(),
+                            Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
     private void createGroup() {
@@ -81,12 +107,13 @@ public class CreateGroupActivity extends AppCompatActivity {
         List<String> selectedIds = userSelectAdapter.getSelectedUserIds();
         selectedIds.add(auth.getCurrentUser().getUid()); // Thêm chính mình vào nhóm
         if (groupName.isEmpty() || selectedIds.size() < 3) {
-            Toast.makeText(this, "Nhập tên nhóm và chọn ít nhất 3 thành viên!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Nhập tên nhóm và chọn ít nhất 2 thành viên!", Toast.LENGTH_SHORT).show();
             return;
         }
         String groupId = UUID.randomUUID().toString();
-        Group group = new Group(groupId, groupName, "default", selectedIds);
-        FirebaseDatabase.getInstance().getReference("Groups")
+        long currentTime = System.currentTimeMillis();
+        Group group = new Group(groupId, groupName, "default", selectedIds, currentTime);
+        databaseReference.child("Groups")
                 .child(groupId)
                 .setValue(group)
                 .addOnSuccessListener(aVoid -> {
@@ -97,4 +124,4 @@ public class CreateGroupActivity extends AppCompatActivity {
                     Toast.makeText(this, "Lỗi: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 });
     }
-} 
+}
